@@ -78,10 +78,16 @@ Always returns a direct link to the created card.`,
       async ({ query, tags, limit }) => {
         const body: Record<string, unknown> = {
           limit,
-          include_membership_statuses: [0, 1, 2],
+          include_membership_statuses: [-2, -1, 0, 1, 2],
         };
         if (query) body.search = query;
-        if (tags?.length) body.filter_group = { tags };
+        if (tags?.length) {
+          body.filter_group = {
+            type: "group",
+            op: "and",
+            filters: tags.map((tag) => ({ type: "tag", op: "contains", arg: tag })),
+          };
+        }
 
         let res: Response;
         try {
