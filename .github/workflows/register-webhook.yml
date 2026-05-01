@@ -1,0 +1,17 @@
+name: Register Supernotes Webhook
+
+on:
+  workflow_dispatch:
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Register webhook URL
+        run: |
+          curl -s -X POST "https://api.supernotes.app/v1/user/webhooks/" \
+            -H "Api-Key: $SUPERNOTES_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"url": "https://supernotes-mcp.silvanbue.workers.dev/webhook"}'
+        env:
+          SUPERNOTES_API_KEY: ${{ secrets.SUPERNOTES_API_KEY }}
