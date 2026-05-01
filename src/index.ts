@@ -108,16 +108,20 @@ Always returns a direct link to the created card.`,
           return { content: [{ type: "text", text: `Supernotes API error ${res.status}: ${text}` }] };
         }
 
-        const json = (await res.json()) as Record<string, { data: { id: string; name: string; markup: string; tags: string[] } }>;
-        const cards = Object.values(json);
+        const json = (await res.json()) as Record<string, { data: { id: string; name: string; markup: string; tags: string[] }; parents?: Record<string, unknown> }>;
 
-        if (cards.length === 0) {
+        if (Object.keys(json).length === 0) {
           return { content: [{ type: "text", text: "No cards found." }] };
         }
 
-        const formatted = cards.map(({ data }) => {
+        const formatted = Object.entries(json).map(([cardId, { data, parents }]) => {
           const tagList = data.tags.length ? ` [${data.tags.join(", ")}]` : "";
-          return `### ${data.name}${tagList}\n${data.markup}`;
+          const parentIds = parents ? Object.keys(parents) : [];
+          const meta = [
+            `ID: ${cardId}`,
+            parentIds.length ? `Parents: ${parentIds.join(", ")}` : null,
+          ].filter(Boolean).join(" | ");
+          return `### ${data.name}${tagList}\n*${meta}*\n${data.markup}`;
         }).join("\n\n---\n\n");
 
         return { content: [{ type: "text", text: formatted }] };
