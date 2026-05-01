@@ -3,8 +3,44 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 const SUPERNOTES_API_URL = "https://api.supernotes.app/v1/cards/simple";
+const SUPERNOTES_SELECT_URL = "https://api.supernotes.app/v1/cards/get/select";
 const STATIC_TAG = "mcp-note";
 const TRIGGER_TAG = "ask-claude";
+
+type CardEntry = {
+  data: { id: string; name: string; markup: string; tags: string[]; public_child_count: number };
+  membership?: { total_child_count: number };
+  parents?: Record<string, unknown>;
+};
+
+function formatCard(cardId: string, { data, membership, parents }: CardEntry): string {
+  const tagList = data.tags.length ? ` [${data.tags.join(", ")}]` : "";
+  const parentIds = parents ? Object.keys(parents) : [];
+  const childCount = membership?.total_child_count ?? data.public_child_count;
+  const meta = [
+    `ID: ${cardId}`,
+    parentIds.length ? `Parents: ${parentIds.join(", ")}` : null,
+    childCount > 0 ? `Children: ${childCount}` : null,
+  ].filter(Boolean).join(" | ");
+  return `### ${data.name}${tagList}\n*${meta}*\n${data.markup}`;
+}
+
+async function selectCards(body: Record<string, unknown>, apiKey: string): Promise<{ ok: false; error: string } | { ok: true; entries: Record<string, CardEntry> }> {
+  let res: Response;
+  try {
+    res = await fetch(SUPERNOTES_SELECT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Api-Key": apiKey },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    return { ok: false, error: `Network error: ${String(err)}` };
+  }
+  if (!res.ok) {
+    return { ok: false, error: `Supernotes API error ${res.status}: ${await res.text()}` };
+  }
+  return { ok: true, entries: (await res.json()) as Record<string, CardEntry> };
+}
 
 export class SupernotesMCP extends McpAgent<Env> {
   server = new McpServer({ name: "Supernotes MCP", version: "0.1.0" });
@@ -89,41 +125,30 @@ Always returns a direct link to the created card.`,
           };
         }
 
-        let res: Response;
-        try {
-          res = await fetch("https://api.supernotes.app/v1/cards/get/select", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Api-Key": this.env.SUPERNOTES_API_KEY,
-            },
-            body: JSON.stringify(body),
-          });
-        } catch (err) {
-          return { content: [{ type: "text", text: `Network error: ${String(err)}` }] };
-        }
+        const result = await selectCards(body, this.env.SUPERNOTES_API_KEY);
+        if (!result.ok) return { content: [{ type: "text", text: result.error }] };
+        if (Object.keys(result.entries).length === 0) return { content: [{ type: "text", text: "No cards found." }] };
 
-        if (!res.ok) {
-          const text = await res.text();
-          return { content: [{ type: "text", text: `Supernotes API error ${res.status}: ${text}` }] };
-        }
+        const formatted = Object.entries(result.entries).map(([id, entry]) => formatCard(id, entry)).join("\n\n---\n\n");
+        return { content: [{ type: "text", text: formatted }] };
+      }
+    );
 
-        const json = (await res.json()) as Record<string, { data: { id: string; name: string; markup: string; tags: string[] }; parents?: Record<string, unknown> }>;
+    this.server.tool(
+      "get_children",
+      "Get the child cards of a given card ID. Use this when search_notes shows a card has children and you need their content.",
+      {
+        card_id: z.string().describe("ID of the parent card"),
+      },
+      async ({ card_id }) => {
+        const result = await selectCards(
+          { parent_id: card_id, include_membership_statuses: [-2, -1, 0, 1, 2] },
+          this.env.SUPERNOTES_API_KEY
+        );
+        if (!result.ok) return { content: [{ type: "text", text: result.error }] };
+        if (Object.keys(result.entries).length === 0) return { content: [{ type: "text", text: "No children found." }] };
 
-        if (Object.keys(json).length === 0) {
-          return { content: [{ type: "text", text: "No cards found." }] };
-        }
-
-        const formatted = Object.entries(json).map(([cardId, { data, parents }]) => {
-          const tagList = data.tags.length ? ` [${data.tags.join(", ")}]` : "";
-          const parentIds = parents ? Object.keys(parents) : [];
-          const meta = [
-            `ID: ${cardId}`,
-            parentIds.length ? `Parents: ${parentIds.join(", ")}` : null,
-          ].filter(Boolean).join(" | ");
-          return `### ${data.name}${tagList}\n*${meta}*\n${data.markup}`;
-        }).join("\n\n---\n\n");
-
+        const formatted = Object.entries(result.entries).map(([id, entry]) => formatCard(id, entry)).join("\n\n---\n\n");
         return { content: [{ type: "text", text: formatted }] };
       }
     );
