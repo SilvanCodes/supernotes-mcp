@@ -140,6 +140,9 @@ export default {
   fetch(req: Request, env: Env, ctx: ExecutionContext): Response | Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname === "/mcp") {
+      if (url.searchParams.get("token") !== env.MCP_AUTH_TOKEN) {
+        return new Response("Unauthorized", { status: 401 });
+      }
       return SupernotesMCP.serve("/mcp").fetch(req, env, ctx);
     }
     if (url.pathname === "/webhook") {
