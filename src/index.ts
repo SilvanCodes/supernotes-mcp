@@ -116,9 +116,8 @@ Always returns a direct link to the created card.`,
         }
 
         const formatted = cards.map(({ data }) => {
-          const snippet = data.markup.length > 200 ? data.markup.slice(0, 200) + "…" : data.markup;
           const tagList = data.tags.length ? ` [${data.tags.join(", ")}]` : "";
-          return `### ${data.name}${tagList}\n${snippet}`;
+          return `### ${data.name}${tagList}\n${data.markup}`;
         }).join("\n\n---\n\n");
 
         return { content: [{ type: "text", text: formatted }] };
