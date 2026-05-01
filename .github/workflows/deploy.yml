@@ -22,3 +22,9 @@ jobs:
         run: npx wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Set Worker secrets
+        run: echo "$SUPERNOTES_API_KEY" | npx wrangler secret put SUPERNOTES_API_KEY
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          SUPERNOTES_API_KEY: ${{ secrets.SUPERNOTES_API_KEY }}
