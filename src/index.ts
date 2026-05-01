@@ -4,6 +4,7 @@ import { z } from "zod";
 
 const SUPERNOTES_API_URL = "https://api.supernotes.app/v1/cards/simple";
 const STATIC_TAG = "mcp-note";
+const TRIGGER_TAG = "ask-claude";
 
 export class SupernotesMCP extends McpAgent<Env> {
   server = new McpServer({ name: "Supernotes MCP", version: "0.1.0" });
@@ -68,11 +69,81 @@ Always returns a direct link to the created card.`,
   }
 }
 
+async function handleWebhook(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  if (req.method !== "POST") {
+    return new Response("Method not allowed", { status: 405 });
+  }
+
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return new Response("Bad request", { status: 400 });
+  }
+
+  const cards: any[] = Array.isArray(body) ? body : (body.data ?? []);
+
+  for (const card of cards) {
+    const tags: string[] = card.tags ?? [];
+    if (!tags.includes(TRIGGER_TAG)) continue;
+    ctx.waitUntil(processCard(card, env));
+  }
+
+  return new Response("OK", { status: 200 });
+}
+
+async function processCard(card: any, env: Env): Promise<void> {
+  const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1024,
+      messages: [{ role: "user", content: `${card.name}\n\n${card.markup}` }],
+    }),
+  });
+
+  if (!claudeRes.ok) return;
+
+  const claudeJson = (await claudeRes.json()) as any;
+  const responseText: string | undefined = claudeJson.content?.[0]?.text;
+  if (!responseText) return;
+
+  // Post Claude's reply as a comment
+  const commentId = crypto.randomUUID();
+  await fetch(`https://api.supernotes.app/v1/comments/${card.id}/${commentId}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Api-Key": env.SUPERNOTES_API_KEY,
+    },
+    body: JSON.stringify({ markup: responseText }),
+  });
+
+  // Remove the trigger tag so re-edits don't trigger again
+  const remainingTags = (card.tags as string[]).filter((t: string) => t !== TRIGGER_TAG);
+  await fetch("https://api.supernotes.app/v1/cards", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "Api-Key": env.SUPERNOTES_API_KEY,
+    },
+    body: JSON.stringify({ [card.id]: { data: { tags: remainingTags } } }),
+  });
+}
+
 export default {
   fetch(req: Request, env: Env, ctx: ExecutionContext): Response | Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname === "/mcp") {
       return SupernotesMCP.serve("/mcp").fetch(req, env, ctx);
+    }
+    if (url.pathname === "/webhook") {
+      return handleWebhook(req, env, ctx);
     }
     return new Response("Not found", { status: 404 });
   },
