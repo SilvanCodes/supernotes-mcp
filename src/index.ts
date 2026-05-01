@@ -60,11 +60,12 @@ Always returns a direct link to the created card.`,
           };
         }
 
-        const json = (await res.json()) as { data: { id: string } };
-        const cardUrl = `https://my.supernotes.app/?preview=${json.data.id}`;
+        const json = (await res.json()) as any;
+        const id = json?.data?.id ?? json?.id ?? json?.[0]?.id;
+        const cardUrl = id ? `https://my.supernotes.app/?preview=${id}` : null;
 
         return {
-          content: [{ type: "text", text: `Note created: ${cardUrl}` }],
+          content: [{ type: "text", text: cardUrl ? `Note created: ${cardUrl}` : "Note created successfully." }],
         };
       }
     );
