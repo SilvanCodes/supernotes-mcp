@@ -41,41 +41,6 @@ async function selectCards(body: Record<string, unknown>, apiKey: string): Promi
   return { ok: true, entries: (await res.json()) as Record<string, CardEntry> };
 }
 
-type CardEntry = {
-  data: { id: string; name: string; markup: string; tags: string[]; public_child_count: number };
-  membership?: { total_child_count: number };
-  parents?: Record<string, unknown>;
-};
-
-function formatCard(cardId: string, { data, membership, parents }: CardEntry): string {
-  const tagList = data.tags.length ? ` [${data.tags.join(", ")}]` : "";
-  const parentIds = parents ? Object.keys(parents) : [];
-  const childCount = membership?.total_child_count ?? data.public_child_count;
-  const meta = [
-    `ID: ${cardId}`,
-    parentIds.length ? `Parents: ${parentIds.join(", ")}` : null,
-    childCount > 0 ? `Children: ${childCount}` : null,
-  ].filter(Boolean).join(" | ");
-  return `### ${data.name}${tagList}\n*${meta}*\n${data.markup}`;
-}
-
-async function selectCards(body: Record<string, unknown>, apiKey: string): Promise<{ ok: false; error: string } | { ok: true; entries: Record<string, CardEntry> }> {
-  let res: Response;
-  try {
-    res = await fetch(SUPERNOTES_SELECT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Api-Key": apiKey },
-      body: JSON.stringify(body),
-    });
-  } catch (err) {
-    return { ok: false, error: `Network error: ${String(err)}` };
-  }
-  if (!res.ok) {
-    return { ok: false, error: `Supernotes API error ${res.status}: ${await res.text()}` };
-  }
-  return { ok: true, entries: (await res.json()) as Record<string, CardEntry> };
-}
-
 export class SupernotesMCP extends McpAgent<Env> {
   server = new McpServer({ name: "Supernotes MCP", version: "0.1.0" });
 
@@ -134,6 +99,37 @@ Always returns a direct link to the created card.`,
         return {
           content: [{ type: "text", text: "Note created successfully." }],
         };
+      }
+    );
+
+    this.server.tool(
+      "extend_note",
+      "Appends content to an existing card in Supernotes.",
+      {
+        card_id: z.string().describe("ID of the card to append to"),
+        content: z.string().describe("Markdown content to append"),
+      },
+      async ({ card_id, content }) => {
+        let res: Response;
+        try {
+          res = await fetch(`https://api.supernotes.app/v1/cards/simple/${card_id}/append`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              "Api-Key": this.env.SUPERNOTES_API_KEY,
+            },
+            body: JSON.stringify({ markup: content }),
+          });
+        } catch (err) {
+          return { content: [{ type: "text", text: `Network error: ${String(err)}` }] };
+        }
+
+        if (!res.ok) {
+          const body = await res.text();
+          return { content: [{ type: "text", text: `Supernotes API error ${res.status}: ${body}` }] };
+        }
+
+        return { content: [{ type: "text", text: "Note extended successfully." }] };
       }
     );
 
