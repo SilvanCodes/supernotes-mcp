@@ -66,6 +66,58 @@ Always returns a direct link to the created card.`,
         };
       }
     );
+
+    this.server.tool(
+      "search_notes",
+      "Search cards in Supernotes by text query and/or tags. Returns matching cards with their title, tags, and content.",
+      {
+        query: z.string().optional().describe("Full-text search query"),
+        tags: z.array(z.string()).optional().describe("Filter to cards containing all these tags"),
+        limit: z.number().int().min(1).max(50).optional().default(10).describe("Maximum number of results to return (default 10, max 50)"),
+      },
+      async ({ query, tags, limit }) => {
+        const body: Record<string, unknown> = {
+          limit,
+          include_membership_statuses: [0, 1, 2],
+        };
+        if (query) body.search = query;
+        if (tags?.length) body.filter_group = { tags };
+
+        let res: Response;
+        try {
+          res = await fetch("https://api.supernotes.app/v1/cards/get/select", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Api-Key": this.env.SUPERNOTES_API_KEY,
+            },
+            body: JSON.stringify(body),
+          });
+        } catch (err) {
+          return { content: [{ type: "text", text: `Network error: ${String(err)}` }] };
+        }
+
+        if (!res.ok) {
+          const text = await res.text();
+          return { content: [{ type: "text", text: `Supernotes API error ${res.status}: ${text}` }] };
+        }
+
+        const json = (await res.json()) as Record<string, { data: { id: string; name: string; markup: string; tags: string[] } }>;
+        const cards = Object.values(json);
+
+        if (cards.length === 0) {
+          return { content: [{ type: "text", text: "No cards found." }] };
+        }
+
+        const formatted = cards.map(({ data }) => {
+          const snippet = data.markup.length > 200 ? data.markup.slice(0, 200) + "…" : data.markup;
+          const tagList = data.tags.length ? ` [${data.tags.join(", ")}]` : "";
+          return `### ${data.name}${tagList}\n${snippet}`;
+        }).join("\n\n---\n\n");
+
+        return { content: [{ type: "text", text: formatted }] };
+      }
+    );
   }
 }
 
