@@ -64,8 +64,12 @@ Always returns a direct link to the created card.`,
           .array(z.string())
           .optional()
           .describe("Additional tags to apply to the card (mcp-note is always added automatically)"),
+        parent_ids: z
+          .array(z.string())
+          .optional()
+          .describe("IDs of parent cards to nest this card under"),
       },
-      async ({ name, content, source_url, tags }) => {
+      async ({ name, content, source_url, tags, parent_ids }) => {
         const allTags = [STATIC_TAG, ...(tags ?? [])];
 
         let markup = content;
@@ -81,7 +85,7 @@ Always returns a direct link to the created card.`,
               "Content-Type": "application/json",
               "Api-Key": this.env.SUPERNOTES_API_KEY,
             },
-            body: JSON.stringify({ name, markup, tags: allTags }),
+            body: JSON.stringify({ name, markup, tags: allTags, ...(parent_ids?.length ? { parent_ids } : {}) }),
           });
         } catch (err) {
           return {
